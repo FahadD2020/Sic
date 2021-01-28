@@ -1,0 +1,94 @@
+# Burnt-to-a-crisp oven timer display in SIC
+# 24-bit value at last word (0x7FFD) contains the time in seconds
+# If MSB=1 then 24 hr time, else, 12 hr time to be displayed
+# 24 hr time e.g 1316  -- HHMM  (1:16 PM)
+# 12 hr time e.g 0116P -- HHMMT (1:16 PM; T -> A for AM, P for PM)
+# Display is at device number 64
+# 0x7FFD = 32765 is the last word in SIC - timer loc
+#
+# Author: Fahad Dawood
+# Since : 10th Nov 2020
+#
+CLOCK	START	7F1D		# start at address such that TIMER is at 0x7ffd
+FIRST	LDA		TIMER		# A = timer
+		COMP	ZERO
+## MSB = 1 means 2s complement of a -ve number. 24 hr fmt
+		JLT		CALC		# if -ve number -> MSB 1 -> 24 hr fmt. Continue
+		LDX		ZERO
+		STX		HRFMT		# else HRFMT=0 (12 hr fmt)
+CALC	AND		MASK		# Keep only lower 17 bits (86400 = 17 bits)
+		STA		SAVED		# save time into SAVED
+		DIV		SIXTY
+		DIV		SIXTY		# A = A / 3600
+		STA		HOUR		# store 24 hr fmt HH
+		MUL		SIXTY
+		STA		TEMP		# temp = HH*60
+		COMP	NOON
+		JLT		ISAM		# if HH*60 < 720, it is AM
+		J		NEXT
+ISAM	LDCH	AM
+		STCH	AMPM
+NEXT	LDA		SAVED
+		DIV		SIXTY
+		SUB		TEMP		# A = (time_sec / 60) - hh*60 = mins
+		STA		MINS
+## HH and MM are computed. Now decide on format based on HRFMT
+		LDA		HRFMT
+		COMP	ZERO
+		JGT		OUTPUT		# if 24hr fmt, proceed output.
+		LDA		HOUR		# else convert HH to 12 hr fmt
+		COMP	TWELVE
+		JGT		ADJUST		# 12 hr fmt. Is HH > 12?
+		COMP	ZERO		# 12 hr fmt. Is HH = 0?
+		JEQ		ADJST1
+		J		OUTPUT		# if not, proceed to output
+ADJUST	SUB		TWELVE		# If 12 hr fmt and HH > 12 then HH = HH-12
+		STA		HOUR
+		J		OUTPUT
+ADJST1	LDA		TWELVE		# If 12 hr fmt and HH = 00 then HH = 12
+		STA		HOUR		
+OUTPUT	LDA		HOUR
+		JSUB	WRNUM		# call WRNUM(HH)
+		LDA		MINS
+		JSUB	WRNUM		# call WRNUM(MM)
+		LDA		HRFMT
+		COMP	ZERO
+		JGT		HALT		# if HRFMT=1 (24 hr fmt) nothing else to do
+		LDCH	AMPM
+		WD		SCREEN		# else 12 hr fmt. Write 'P' or 'A'
+		J		HALT		# boom done. burnt-to-a-crips gets dollars
+## function to display a 2 digit number in A. 
+## Used to print HH and MM
+WRNUM	STA		TEMP1		# TEMP1 <- A as 'A1A0'
+		DIV		TEN			# A <- A1
+		STA		TEMP		# TEMP <- A1			
+		ADD		ASCII		# A <- ASCII of digit A1
+		WD		SCREEN		# print it to screen
+		LDA		TEMP
+		MUL		TEN			# A <- 10*A1
+		STA		TEMP		# TEMP <- 
+		LDA		TEMP1
+		SUB		TEMP		# A <- 'A1A0' - 10*A1 = A0
+		ADD		ASCII
+		WD		SCREEN		# write ASCII of digit A0
+		RSUB
+HALT	LDL		ZERO		# return to address 0 -> halts VM
+		RSUB
+HRFMT	WORD	1			# if 1, use 24 hr fmt, else 12 hr
+AMPM	BYTE	C'P'		# AMPM = A for AM or P for PM
+AM		BYTE	C'A'
+ZERO	WORD	0
+TEN		WORD	10
+TWELVE	WORD	12
+ASCII	WORD	48			# ASCII of '0' -> 48
+HOUR	WORD	0			# hours stored here
+MINS	WORD	0			# and minutes here
+SIXTY	WORD	60			# 1 hr = 60 min, 1 min = 60 sec, so...
+SCREEN	WORD	64			# Display is at device number 64
+NOON	WORD	720			# 720 mins = 12:00:00. Used to decide AM/PM
+MASK	WORD	131071		# 0x1ffff can mask 86400 (which is 17 bits)
+SAVED	RESW	1			# save a copy of the time
+TEMP	RESW	1
+TEMP1	RESW	1			# for temp calculations
+TIMER	RESW 	1			# this must be the address 0x7ffd
+ENDING	END		FIRST
